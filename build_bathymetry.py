@@ -22,19 +22,20 @@ from collections import defaultdict
 
 SRC_URL = "https://anrmaps.vermont.gov/websites/OpenData/Items/BathymetricData/BiobaseLakeBathymetry_08122020.zip"
 OUT = os.environ.get("VT_OUT", "vt-lake-bathymetry.geojson")
-# Depth-scaled contour levels in feet: every 5 ft down to 30, every 10-20 ft through
-# the mid water, every 50 ft in the deeps. gdal_contour only emits the levels a given
-# lake actually reaches, so shallow lakes keep their 5 ft near-shore detail while a
-# 300 ft lake gets ~15 contours instead of ~60. Positive values on purpose: the grid
-# stores depth as a positive magnitude (see main), which keeps every gdal_contour
-# argument non-negative and clear of GDAL's "negative number looks like a flag" bug.
-LEVELS_FT = [5, 10, 15, 20, 25, 30,
-             40, 50, 60, 80, 100,
-             150, 200, 250, 300, 350]
+# Depth-scaled contour levels in feet, kept deliberately sparse near the surface.
+# gdal_contour only emits the levels a lake actually reaches. A single 5 ft contour on
+# a big lake shatters into dozens of disconnected near-shore segments (interpolation
+# noise), which both clutters the shoreline and, on the deepest lakes, piles so many
+# nested features into one map tile that a phone's renderer drops the whole lake. A
+# 5 ft ring is kept for shallow ponds, but the intermediate shallow steps (15, 25 ft)
+# are dropped so the shoreline reads cleanly and no lake overruns a tile budget.
+# Positive values on purpose: the grid stores depth as a positive magnitude (see main),
+# which keeps every gdal_contour argument clear of GDAL's "negative looks like a flag" bug.
+LEVELS_FT = [5, 10, 20, 30, 50, 75, 100, 150, 250]
 GRID = 300               # interpolation grid cells per side (smoother than 500)
-SIMPLIFY_DEG = 0.00006   # ~6 m line simplification tolerance
+SIMPLIFY_DEG = 0.0001    # ~11 m line simplification tolerance (trims vertices per contour)
 MIN_POINTS = 200         # skip lakes with too few soundings to contour meaningfully
-MIN_LEN_M = 90           # drop contour slivers shorter than this (interpolation noise)
+MIN_LEN_M = 200          # drop contour segments shorter than this (interpolation noise)
 
 
 def run(cmd):
