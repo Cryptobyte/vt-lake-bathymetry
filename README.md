@@ -42,7 +42,7 @@ data changes rarely, so yearly is plenty; run it by hand whenever Vermont update
 The committed file is served raw at:
 
 ```
-https://raw.githubusercontent.com/<owner>/<repo>/main/vt-lake-bathymetry.geojson
+https://raw.githubusercontent.com/Cryptobyte/vt-lake-bathymetry/main/vt-lake-bathymetry.geojson
 ```
 
 It is a plain static GeoJSON (no bbox querying), so a client fetches the whole file
