@@ -19,13 +19,13 @@ on a schedule, so the app has an NH-style contour layer to load.
 
 1. Downloads the VT ANR Biobase soundings ZIP.
 2. For each lake, interpolates the scattered points to a grid (`gdal_grid`, Delaunay
-   linear) and extracts contour lines at depth-scaled intervals (`gdal_contour`):
-   `[5, 10, 20, 30, 50, 75, 100, 150, 250]` ft. A flat 5 ft interval made the deepest
-   lakes so dense (Willoughby alone was ~600 contours, tightly nested in a narrow lake)
-   that the app's map renderer overran its per-tile geometry budget and dropped the
-   whole lake on device, even though a desktop renderer drew it fine. Sparse, depth-
-   scaled levels plus a short-segment filter keep the shoreline readable and hold every
-   lake within a tile budget a phone can draw.
+   linear) and extracts contour lines at a fixed set of depth levels (`gdal_contour`):
+   `[5, 20, 40, 60, 80, 100, 120, 150, 200, 250, 300]` ft. The levels are sparse near
+   the surface and tighter through the mid water and deeps: shallow water rings the
+   shoreline, so closely spaced shallow levels pile lines along the shore while the
+   middle of the lake stays bare. This spacing evens the line density out across the
+   lake. `gdal_contour` only emits the levels a lake actually reaches, so shallow ponds
+   stay simple while deep lakes fill in.
 3. Merges every lake into one GeoJSON of `LineString` features, each tagged with
    `lake` (name) and `depth` (whole feet, positive), then simplifies the lines.
 4. Commits the result, `vt-lake-bathymetry.geojson`, back to this repo if it changed.

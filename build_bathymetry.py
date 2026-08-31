@@ -22,20 +22,31 @@ from collections import defaultdict
 
 SRC_URL = "https://anrmaps.vermont.gov/websites/OpenData/Items/BathymetricData/BiobaseLakeBathymetry_08122020.zip"
 OUT = os.environ.get("VT_OUT", "vt-lake-bathymetry.geojson")
-# Depth-scaled contour levels in feet, kept deliberately sparse near the surface.
-# gdal_contour only emits the levels a lake actually reaches. A single 5 ft contour on
-# a big lake shatters into dozens of disconnected near-shore segments (interpolation
-# noise), which both clutters the shoreline and, on the deepest lakes, piles so many
-# nested features into one map tile that a phone's renderer drops the whole lake. A
-# 5 ft ring is kept for shallow ponds, but the intermediate shallow steps (15, 25 ft)
-# are dropped so the shoreline reads cleanly and no lake overruns a tile budget.
-# Positive values on purpose: the grid stores depth as a positive magnitude (see main),
-# which keeps every gdal_contour argument clear of GDAL's "negative looks like a flag" bug.
-LEVELS_FT = [5, 10, 20, 30, 50, 75, 100, 150, 250]
+# Contour levels in feet, tuned so line density reads evenly across a lake rather than
+# crowding the shore. A lake's shallow water rings the shoreline, so closely spaced
+# shallow levels (5, 10, 20, 30) pile several lines along the shore while the broad
+# mid-water and deep basin stay nearly bare. The levels below keep just a 5 ft shore
+# ring (also the only contour tiny ponds get) and one more shallow step, then tighten
+# through the mid water and deeps where the extra lines are wanted. gdal_contour only
+# emits the levels a lake actually reaches, so shallow ponds stay simple while deep
+# lakes fill in. Positive values on purpose: the grid stores depth as a positive
+# magnitude (see main), keeping every gdal_contour argument clear of GDAL's "negative
+# looks like a flag" bug.
+LEVELS_FT = [5, 20, 40, 60, 80, 100, 120, 150, 200, 250, 300]
 GRID = 300               # interpolation grid cells per side (smoother than 500)
 SIMPLIFY_DEG = 0.0001    # ~11 m line simplification tolerance (trims vertices per contour)
 MIN_POINTS = 200         # skip lakes with too few soundings to contour meaningfully
-MIN_LEN_M = 200          # drop contour segments shorter than this (interpolation noise)
+# Depth-dependent sliver filter, U-shaped by depth. Both ends of the depth range
+# shatter into short interpolation-noise segments: the shallow contours because they
+# ring the crenulated shoreline, and the deepest contours because deep soundings are
+# sparse so the interpolated basin is bumpy. The clean, real detail lives in the mid
+# water. So the two ends get a long minimum length that keeps only continuous rings and
+# drops the clutter, while the middle gets a short minimum so its detail fills in. This
+# is what evens the line density from shore to center.
+SHALLOW_MAX_FT = 20      # contours this shallow or shallower are shoreline (filter hard)
+DEEP_MIN_FT = 200        # contours this deep or deeper are deep basin (filter hard)
+EDGE_MIN_LEN_M = 250     # min length for the shallow + deep ends (drops their noise)
+MID_MIN_LEN_M = 70       # min length for the mid water (keeps its wanted detail)
 
 
 def run(cmd):
@@ -120,10 +131,15 @@ def main():
             g = feat.get("geometry")
             if not g or g.get("type") != "LineString":   # drop degenerate Point contours
                 continue
-            if length_m(g["coordinates"]) < MIN_LEN_M:    # drop interpolation-noise slivers
-                continue
             depth = round(feat["properties"]["depth"])    # positive ft below surface
             if depth <= 0:
+                continue
+            # Filter short slivers, harder at the shallow and deep ends (both shatter
+            # into noise) than in the clean mid water, so the shore and deep basin
+            # declutter while the middle fills in.
+            edge = depth <= SHALLOW_MAX_FT or depth >= DEEP_MIN_FT
+            min_len = EDGE_MIN_LEN_M if edge else MID_MIN_LEN_M
+            if length_m(g["coordinates"]) < min_len:
                 continue
             feat["properties"] = {"lake": lake.title(), "depth": depth}
             features.append(feat)
