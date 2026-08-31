@@ -1,0 +1,7 @@
+# Local build artifacts (the Action uses a temp dir; these only appear from local runs)
+*.zip
+*.tif
+*.vrt
+BiobaseLakeBathymetry_*.csv
+pts.csv
+__pycache__/

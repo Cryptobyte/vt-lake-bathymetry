@@ -1,0 +1,42 @@
+name: Build VT lake bathymetry
+
+# Rebuilds the Vermont lake bathymetry contour GeoJSON from the VT ANR source and
+# commits it back to this repo. Runs once a year, plus on demand.
+on:
+  schedule:
+    - cron: "0 6 1 4 *"    # 06:00 UTC, April 1, yearly
+  workflow_dispatch: {}     # manual "Run workflow" button
+
+permissions:
+  contents: write           # needed to commit the regenerated GeoJSON
+
+concurrency:
+  group: build-bathymetry
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GDAL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gdal-bin
+
+      - name: Build contours
+        run: python3 build_bathymetry.py
+
+      - name: Commit output if it changed
+        run: |
+          if [[ -n "$(git status --porcelain vt-lake-bathymetry.geojson)" ]]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add vt-lake-bathymetry.geojson
+            git commit -m "Update VT lake bathymetry contours ($(date -u +%Y-%m-%d))"
+            git push
+          else
+            echo "No change in output; nothing to commit."
+          fi
