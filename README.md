@@ -19,7 +19,11 @@ on a schedule, so the app has an NH-style contour layer to load.
 
 1. Downloads the VT ANR Biobase soundings ZIP.
 2. For each lake, interpolates the scattered points to a grid (`gdal_grid`, Delaunay
-   linear) and extracts contour lines every 5 ft (`gdal_contour`).
+   linear) and extracts contour lines at depth-scaled intervals (`gdal_contour`):
+   every 5 ft near the surface, widening to 10-20 ft in mid water and 50 ft in the
+   deeps. A flat 5 ft interval made the deepest lakes so dense the app's map renderer
+   dropped them on device, so the interval scales with depth to keep every lake within
+   a tile budget a phone can draw.
 3. Merges every lake into one GeoJSON of `LineString` features, each tagged with
    `lake` (name) and `depth` (whole feet, positive), then simplifies the lines.
 4. Commits the result, `vt-lake-bathymetry.geojson`, back to this repo if it changed.
@@ -50,9 +54,9 @@ once. It is not for navigation.
 
 ## Tuning
 
-In `build_bathymetry.py`: `INTERVAL_FT` (contour spacing), `GRID` (interpolation
-resolution), `SIMPLIFY_DEG` (line smoothing / file size), `MIN_POINTS` (skip tiny
-lakes).
+In `build_bathymetry.py`: `LEVELS_FT` (the depth-scaled contour levels), `GRID`
+(interpolation resolution), `SIMPLIFY_DEG` (line smoothing / file size), `MIN_POINTS`
+(skip tiny lakes), `MIN_LEN_M` (drop short interpolation-noise slivers).
 
 ## Data source and license
 

@@ -7,6 +7,13 @@ depth contour lines, and writes one simplified GeoJSON of LineString features wi
 `depth` (whole feet, positive) and `lake` properties -- the same shape the Scout app
 already uses for New Hampshire bathymetry.
 
+Contours are drawn at depth-scaled intervals (dense near the surface, wider in deep
+water). A flat 5 ft interval produced thousands of contours for the deepest lakes
+(Willoughby alone hit ~600), which is far more geometry than a phone's map renderer
+will keep in one tile: it silently drops the over-dense lakes on device even though a
+desktop renderer draws them fine. Scaling the interval with depth keeps near-shore
+detail while holding every lake to a tile budget the app can actually render.
+
 Requires GDAL command-line tools (gdal_grid, gdal_contour, ogr2ogr) on PATH.
 Set VT_LOCAL_CSV to a local CSV path to skip the download (for testing).
 """
@@ -15,11 +22,19 @@ from collections import defaultdict
 
 SRC_URL = "https://anrmaps.vermont.gov/websites/OpenData/Items/BathymetricData/BiobaseLakeBathymetry_08122020.zip"
 OUT = os.environ.get("VT_OUT", "vt-lake-bathymetry.geojson")
-INTERVAL_FT = 5          # contour interval in feet
+# Depth-scaled contour levels in feet: every 5 ft down to 30, every 10-20 ft through
+# the mid water, every 50 ft in the deeps. gdal_contour only emits the levels a given
+# lake actually reaches, so shallow lakes keep their 5 ft near-shore detail while a
+# 300 ft lake gets ~15 contours instead of ~60. Positive values on purpose: the grid
+# stores depth as a positive magnitude (see main), which keeps every gdal_contour
+# argument non-negative and clear of GDAL's "negative number looks like a flag" bug.
+LEVELS_FT = [5, 10, 15, 20, 25, 30,
+             40, 50, 60, 80, 100,
+             150, 200, 250, 300, 350]
 GRID = 300               # interpolation grid cells per side (smoother than 500)
-SIMPLIFY_DEG = 0.00005   # ~5 m line simplification tolerance
+SIMPLIFY_DEG = 0.00006   # ~6 m line simplification tolerance
 MIN_POINTS = 200         # skip lakes with too few soundings to contour meaningfully
-MIN_LEN_M = 60           # drop contour slivers shorter than this (interpolation noise)
+MIN_LEN_M = 90           # drop contour slivers shorter than this (interpolation noise)
 
 
 def run(cmd):
@@ -70,7 +85,14 @@ def main():
         with open(pcsv, "w") as g:
             g.write("X,Y,Z\n")
             for x, y, z in pts:
-                g.write(f"{x},{y},{z}\n")
+                # Store depth as a positive magnitude below the surface. The source
+                # records depth as negative, but positive Z keeps the contour levels
+                # (and every gdal argument) non-negative.
+                try:
+                    zf = abs(float(z))
+                except (TypeError, ValueError):
+                    continue
+                g.write(f"{x},{y},{zf}\n")
         vrt = os.path.join(work, "pts.vrt")
         with open(vrt, "w") as g:
             g.write(
@@ -88,7 +110,7 @@ def main():
         try:
             run(["gdal_grid", "-q", "-a", "linear:nodata=-9999", "-zfield", "Z",
                  "-outsize", str(GRID), str(GRID), "-a_srs", "EPSG:4326", "-of", "GTiff", vrt, tif])
-            run(["gdal_contour", "-q", "-a", "depth", "-i", str(INTERVAL_FT), tif, cont])
+            run(["gdal_contour", "-q", "-a", "depth", "-fl", *[str(l) for l in LEVELS_FT], tif, cont])
         except subprocess.CalledProcessError:
             print(f"  contour failed for {lake}", flush=True)
             continue
@@ -99,7 +121,7 @@ def main():
                 continue
             if length_m(g["coordinates"]) < MIN_LEN_M:    # drop interpolation-noise slivers
                 continue
-            depth = -round(feat["properties"]["depth"])   # negative-below-surface -> positive ft
+            depth = round(feat["properties"]["depth"])    # positive ft below surface
             if depth <= 0:
                 continue
             feat["properties"] = {"lake": lake.title(), "depth": depth}
